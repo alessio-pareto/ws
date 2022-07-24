@@ -1,4 +1,4 @@
-module ws
+module github.com/alessio-pareto/ws
 
 go 1.18
 

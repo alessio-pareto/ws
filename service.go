@@ -3,6 +3,7 @@ package ws
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"strings"
 
@@ -95,6 +96,36 @@ func (sm *ServiceManager) Run(out SvcOutErrFunc, handler SvcHandlerFunc) error {
 	}
 
 	return sm.Start(out, handler, os.Args[1:]...)
+}
+
+func (sm *ServiceManager) RunAndLog(out SvcOutErrFunc, handler SvcHandlerFunc) {
+	err := sm.Run(out, handler)
+	
+	if !sm.IsInService() {
+		if err == nil {
+			return
+		}
+		log.Fatalln(err)
+	}
+
+	if err == nil && sm.PanicErr() == nil {
+		return
+	}
+
+	f, _ := os.Create("service.log")
+	if f == nil {
+		os.Exit(1)
+	}
+	defer f.Close()
+	
+	if err != nil {
+		fmt.Fprintln(f, err)
+	}
+	if err = sm.PanicErr(); err != nil {
+		fmt.Fprintln(f, err)
+	}
+
+	os.Exit(1)
 }
 
 func (sm *ServiceManager) Started() {
