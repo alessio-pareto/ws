@@ -1,4 +1,4 @@
-module github.com/alessio-pareto/ws
+module github.com/nixpare/ws
 
 go 1.18
 
