@@ -16,15 +16,13 @@ type SvcHandlerFunc func(sm *ServiceManager, args ...string)
 
 func (sm *ServiceManager) Start(handlerFunc SvcHandlerFunc, args ...string) error {
 	if sm.inService {
-		sm.inService = true
-
 		err := sm.changeWD()
 		if err != nil {
 			return err
 		}
 
 		sm.s.handlerFunc = handlerFunc
-		return logger.PanicToErr(func() error { return sm.run() })
+		return logger.PanicToErr(sm.run)
 	}
 
 	return sm.startService(args...)

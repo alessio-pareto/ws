@@ -92,7 +92,7 @@ func (sm *ServiceManager) Run(handler SvcHandlerFunc) error {
 		return nil
 	}
 
-	return sm.Start(handler, os.Args[1:]...)
+	return sm.Start(handler)
 }
 
 func (sm *ServiceManager) Started() {
