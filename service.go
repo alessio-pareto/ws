@@ -2,8 +2,6 @@ package ws
 
 import (
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"strings"
 
@@ -16,13 +14,10 @@ type ServiceManager struct {
 	displayName string
 	description string
 	s *service
-	out io.Writer
-	err io.Writer
-	panicErr error
 	inService bool
 }
 
-func Service(name, displayName, description string) *ServiceManager {
+func Service(name, displayName, description string) (*ServiceManager, error) {
 	sm := &ServiceManager {
 		name: name,
 		displayName: displayName,
@@ -32,8 +27,14 @@ func Service(name, displayName, description string) *ServiceManager {
 		},
 	}
 
+	var err error
+	sm.inService, err = svc.IsWindowsService()
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine if we are running in service: %w", err)
+	}
+
 	sm.s.sm = sm
-	return sm
+	return sm, nil
 }
 
 func (sm *ServiceManager) Name() string {
@@ -52,11 +53,7 @@ func (sm *ServiceManager) IsInService() bool {
 	return sm.inService
 }
 
-func (sm *ServiceManager) PanicErr() error {
-	return sm.panicErr
-}
-
-func (sm *ServiceManager) Run(out SvcOutErrFunc, handler SvcHandlerFunc) error {
+func (sm *ServiceManager) Run(handler SvcHandlerFunc) error {
 	if len(os.Args) > 1 {
 		var err error
 		cmd := strings.ToLower(os.Args[1])
@@ -72,7 +69,7 @@ func (sm *ServiceManager) Run(out SvcOutErrFunc, handler SvcHandlerFunc) error {
 		case "remove":
 			err = sm.RemoveService()
 		case "start":
-			err = sm.Start(out, handler)
+			err = sm.Start(handler)
 		case "stop":
 			err = sm.Stop()
 		case "pause":
@@ -81,7 +78,7 @@ func (sm *ServiceManager) Run(out SvcOutErrFunc, handler SvcHandlerFunc) error {
 			err = sm.Continue()
 		default:
 			cmd = ""
-			err = sm.Start(out, handler, os.Args[1:]...)
+			err = sm.Start(handler, os.Args[1:]...)
 		}
 
 		if err != nil {
@@ -95,37 +92,7 @@ func (sm *ServiceManager) Run(out SvcOutErrFunc, handler SvcHandlerFunc) error {
 		return nil
 	}
 
-	return sm.Start(out, handler, os.Args[1:]...)
-}
-
-func (sm *ServiceManager) RunAndLog(out SvcOutErrFunc, handler SvcHandlerFunc) {
-	err := sm.Run(out, handler)
-	
-	if !sm.IsInService() {
-		if err == nil {
-			return
-		}
-		log.Fatalln(err)
-	}
-
-	if err == nil && sm.PanicErr() == nil {
-		return
-	}
-
-	f, _ := os.Create("service.log")
-	if f == nil {
-		os.Exit(1)
-	}
-	defer f.Close()
-	
-	if err != nil {
-		fmt.Fprintln(f, err)
-	}
-	if err = sm.PanicErr(); err != nil {
-		fmt.Fprintln(f, err)
-	}
-
-	os.Exit(1)
+	return sm.Start(handler, os.Args[1:]...)
 }
 
 func (sm *ServiceManager) Started() {
@@ -154,31 +121,11 @@ func (s *service) Execute(args []string, r <-chan svc.ChangeRequest, changes cha
 }
 
 func (s *service) execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) {
-	panicChan := make(chan error, 10)
-	defer close(panicChan)
 	go func() {
-		for err := range panicChan {
-			s.sm.Logln(err)
-		}
-	}()
-
-	sc := &Scheduler{ panicChan: panicChan }
-
-	sc.GoNB(func(sc *Scheduler) {
 		for c := range r {
 			s.handleChange(c)
 		}
-	})
+	}()
 
-	if s.changeHandlers[svc.Stop] == nil {
-		s.sm.RegisterChangeHandler(svc.Stop, func(sm *ServiceManager, c svc.ChangeRequest) {
-			panic(fmt.Errorf("%s service received stop signal but no handler was registered", s.sm.name))
-		})
-	}
-
-	sc.Go(func(sc *Scheduler) {
-		s.handlerFunc(s.sm, sc, args...)
-	})
-
-	sc.Wait()
+	s.handlerFunc(s.sm, args...)
 }

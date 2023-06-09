@@ -2,51 +2,29 @@ package ws
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/nixpare/logger"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-type SvcHandlerFunc func(sm *ServiceManager, sc *Scheduler, args ...string)
+type SvcHandlerFunc func(sm *ServiceManager, args ...string)
 
-type SvcOutErrFunc func() (out, err io.Writer, close func())
-
-func (sm *ServiceManager) Start(outErr SvcOutErrFunc, handlerFunc SvcHandlerFunc, args ...string) error {
-	inService, err := svc.IsWindowsService()
-	if err != nil {
-		return fmt.Errorf("failed to determine if we are running in service: %w", err)
-	}
-
-	if inService {
-		defer func() {
-			if err := recover(); err != nil {
-				switch err := err.(type) {
-				case error:
-					sm.panicErr = fmt.Errorf("%s service start panic: %w\n%s", sm.name, err, stack())
-				default:
-					sm.panicErr = fmt.Errorf("%s service start panic: %v\n%s", sm.name, err, stack())
-				}
-			}
-		}()
-
+func (sm *ServiceManager) Start(handlerFunc SvcHandlerFunc, args ...string) error {
+	if sm.inService {
 		sm.inService = true
 
-		err = sm.changeWD()
+		err := sm.changeWD()
 		if err != nil {
 			return err
 		}
-		
-		var outErrCloseFunc func()
-		sm.out, sm.err, outErrCloseFunc = outErr()
-		defer outErrCloseFunc()
 
 		sm.s.handlerFunc = handlerFunc
-		return sm.run()
+		return logger.PanicToErr(func() error { return sm.run() })
 	}
 
 	return sm.startService(args...)
