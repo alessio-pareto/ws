@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -41,7 +42,16 @@ func exePath() (string, error) {
 	return "", err
 }
 
-func (sm *ServiceManager) InstallService(cfg mgr.Config) error {
+func (sm *ServiceManager) DefaultServiceConfig() mgr.Config {
+	return mgr.Config {
+		StartType: mgr.StartManual,
+		ErrorControl: mgr.ErrorIgnore,
+		DisplayName: sm.displayName,
+		Description: sm.description,
+	}
+}
+
+func (sm *ServiceManager) InstallService(cfg mgr.Config, preshutdownTime time.Duration) error {
 	exepath, err := exePath()
 	if err != nil {
 		return err
@@ -69,8 +79,7 @@ func (sm *ServiceManager) InstallService(cfg mgr.Config) error {
 	}
 	defer s.Close()
 
-	time := 2000
-
+	time := preshutdownTime.Milliseconds()
 	return windows.ChangeServiceConfig2(s.Handle, windows.SERVICE_CONFIG_PRESHUTDOWN_INFO, (*byte)(unsafe.Pointer(&time)))
 }
 

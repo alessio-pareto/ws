@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
 )
 
 type ServiceManager struct {
@@ -60,12 +60,7 @@ func (sm *ServiceManager) Run(handler SvcHandlerFunc) error {
 
 		switch cmd {
 		case "install":
-			err = sm.InstallService(mgr.Config {
-				StartType: mgr.StartManual,
-				ErrorControl: mgr.ErrorIgnore,
-				DisplayName: sm.displayName,
-				Description: sm.description,
-			})
+			err = sm.InstallService(sm.DefaultServiceConfig(), time.Second * 10)
 		case "remove":
 			err = sm.RemoveService()
 		case "start":
