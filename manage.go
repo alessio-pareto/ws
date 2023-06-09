@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -87,7 +87,9 @@ func (sm *ServiceManager) changeWD() error {
 		return err
 	}
 
-	return os.Chdir(path.Dir(strings.ReplaceAll(cfg.BinaryPathName, "\\", "/")))
+	bpn := strings.Trim(cfg.BinaryPathName, "\"")
+	bpn = strings.ReplaceAll(bpn, "\\", "/")
+	return os.Chdir(filepath.Dir(bpn))
 }
 
 func (sm *ServiceManager) ControlService(c svc.Cmd, to svc.State) error {
