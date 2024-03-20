@@ -111,11 +111,11 @@ func (s *service) Execute(args []string, r <-chan svc.ChangeRequest, changes cha
 		s.changes <- svc.Status{ State: svc.Stopped }
 	}()
 
-	s.execute(args, r, changes)
+	s.execute(args, r)
 	return
 }
 
-func (s *service) execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) {
+func (s *service) execute(args []string, r <-chan svc.ChangeRequest) {
 	go func() {
 		for c := range r {
 			s.handleChange(c)
