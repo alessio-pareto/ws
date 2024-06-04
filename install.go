@@ -2,8 +2,7 @@ package ws
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -11,95 +10,103 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-func exePath() (string, error) {
-	prog := os.Args[0]
-
-	p, err := filepath.Abs(prog)
-	if err != nil {
-		return "", err
-	}
-
-	fi, err := os.Stat(p)
-	if err == nil {
-		if !fi.Mode().IsDir() {
-			return p, nil
-		}
-		err = fmt.Errorf("%s is directory", p)
-	}
-
-	if filepath.Ext(p) == "" {
-		p += ".exe"
-		fi, err := os.Stat(p)
-		if err == nil {
-			if !fi.Mode().IsDir() {
-				return p, nil
-			}
-			err = fmt.Errorf("%s is directory", p)
-			return "", err
-		}
-	}
-
-	return "", err
+type Option struct {
+	typ string
+	f   func(s *mgr.Service) error
 }
 
-func (sm *ServiceManager) DefaultServiceConfig() mgr.Config {
-	return mgr.Config {
-		StartType: mgr.StartManual,
-		ErrorControl: mgr.ErrorIgnore,
-		DisplayName: sm.displayName,
-		Description: sm.description,
-	}
-}
-
-func (sm *ServiceManager) InstallService(cfg mgr.Config, preshutdownTime time.Duration) error {
-	exepath, err := exePath()
-	if err != nil {
-		return err
-	}
-
-	m, err := mgr.Connect()
+func InstallService(name string, exepath string, cfg mgr.Config, options ...Option) error {
+	m, err := managerConnect()
 	if err != nil {
 		return err
 	}
 	defer m.Disconnect()
 
-	s, err := m.OpenService(sm.name)
-	if err == nil {
-		s.Close()
-		return fmt.Errorf("service %s already exists", sm.name)
-	}
-
-	if cfg.BinaryPathName == "" {
-		cfg.BinaryPathName = exepath
-	}
-
-	s, err = m.CreateService(sm.name, exepath, cfg)
+	s, err := m.CreateService(name, exepath, cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("create service: %w", err)
 	}
 	defer s.Close()
 
-	time := preshutdownTime.Milliseconds()
-	return windows.ChangeServiceConfig2(s.Handle, windows.SERVICE_CONFIG_PRESHUTDOWN_INFO, (*byte)(unsafe.Pointer(&time)))
+	for _, opt := range options {
+		err = opt.f(s)
+		if err != nil {
+			return fmt.Errorf("config option \"%s\": %w", opt.typ, err)
+		}
+	}
+
+	return nil
 }
 
-func (sm *ServiceManager) RemoveService() error {
-	m, err := mgr.Connect()
+func RemoveService(name string) error {
+	s, err := ConnectToService(name)
 	if err != nil {
 		return err
-	}
-	defer m.Disconnect()
-
-	s, err := m.OpenService(sm.name)
-	if err != nil {
-		return fmt.Errorf("service %s is not installed", sm.name)
 	}
 	defer s.Close()
 
 	err = s.Delete()
 	if err != nil {
-		return err
+		return fmt.Errorf("service delete: %w", err)
 	}
 
 	return nil
+}
+
+func ArgsOption(args ...string) Option {
+	return Option{
+		typ: "autostart args",
+		f: func(s *mgr.Service) error {
+			cfg, err := s.Config()
+			if err != nil {
+				return err
+			}
+
+			for _, a := range args {
+				cfg.BinaryPathName += " " + syscall.EscapeArg(a)
+			}
+
+			return s.UpdateConfig(cfg)
+		},
+	}
+}
+
+func PreShutdownOption(d time.Duration) Option {
+	return Option{
+		typ: "preshutdown",
+		f: func(s *mgr.Service) error {
+			time := d.Milliseconds()
+			return windows.ChangeServiceConfig2(
+				s.Handle,
+				windows.SERVICE_CONFIG_PRESHUTDOWN_INFO,
+				(*byte)(unsafe.Pointer(&time)),
+			)
+		},
+	}
+}
+
+func FailureActionsOption(failureActions windows.SERVICE_FAILURE_ACTIONS) Option {
+	return Option{
+		typ: "failure actions",
+		f: func(s *mgr.Service) error {
+			return windows.ChangeServiceConfig2(
+				s.Handle,
+				windows.SERVICE_CONFIG_FAILURE_ACTIONS,
+				(*byte)(unsafe.Pointer(&failureActions)),
+			)
+		},
+	}
+}
+
+func DelayedAutostartOption() Option {
+	return Option{
+		typ: "delayed autostart",
+		f: func(s *mgr.Service) error {
+			return windows.ChangeServiceConfig2(
+				s.Handle,
+				windows.SERVICE_CONFIG_DELAYED_AUTO_START_INFO,
+				(*byte)(unsafe.Pointer(&windows.SERVICE_DELAYED_AUTO_START_INFO{ IsDelayedAutoStartUp: 1 })),
+			)
+		},
+	}
 }

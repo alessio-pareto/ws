@@ -6,18 +6,18 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
-type ChangeHandlerFunc func(sm *ServiceManager, c svc.ChangeRequest)
+type ChangeHandlerFunc func(s *Service, c svc.ChangeRequest)
 
-func (sm *ServiceManager) RegisterChangeHandler(cmd svc.Cmd, f ChangeHandlerFunc) {
-	sm.s.changeHandlers[cmd] = f
-	sm.s.accepts |= acceptedFromCmd(cmd)
+func (s *Service) RegisterChangeHandler(cmd svc.Cmd, f ChangeHandlerFunc) {
+	s.changeHandlers[cmd] = f
+	s.accepts |= acceptedFromCmd(cmd)
 
-	if sm.s.changes != nil {
-		sm.s.sendAccepts(sm.s.accepts)
+	if s.changes != nil {
+		s.SendAccepts(s.accepts)
 	}
 }
 
-func (s *service) tempAccepts(cmd svc.Cmd) svc.Accepted {
+func (s *Service) tempAccepts(cmd svc.Cmd) svc.Accepted {
 	var t svc.Accepted
 
 	for a := range s.changeHandlers {
@@ -60,31 +60,29 @@ func acceptedFromCmd(cmd svc.Cmd) svc.Accepted {
 	return 0
 }
 
-func (s *service) sendStatus(status svc.Status) {
-	if s.changes != nil {
-		s.changes <- status
-	}
+func (s *Service) SendStatus(status svc.Status) {
+	s.changes <- status
 }
 
-func (s *service) sendState(state svc.State) {
+func (s *Service) SendState(state svc.State) {
 	if state == 0 {
 		state = s.state
 	} else {
 		s.state = state
 	}
 
-	s.sendStatus(svc.Status{ State: state, Accepts: s.accepts })
+	s.SendStatus(svc.Status{ State: state, Accepts: s.accepts })
 }
 
-func (s *service) sendAccepts(accepts svc.Accepted) {
-	s.sendStatus(svc.Status{ State: s.state, Accepts: accepts })
+func (s *Service) SendAccepts(accepts svc.Accepted) {
+	s.SendStatus(svc.Status{ State: s.state, Accepts: accepts })
 }
 
-func (s *service) handleChange(c svc.ChangeRequest) {
+func (s *Service) handleChange(c svc.ChangeRequest) {
 	if c.Cmd == svc.Interrogate {
-		s.sendStatus(c.CurrentStatus)
+		s.SendStatus(c.CurrentStatus)
 		time.Sleep(100 * time.Millisecond)
-		s.sendStatus(c.CurrentStatus)
+		s.SendStatus(c.CurrentStatus)
 
 		return
 	}
@@ -108,12 +106,12 @@ func (s *service) handleChange(c svc.ChangeRequest) {
 	}
 
 	if before != nil {
-		s.sendStatus(*before)
+		s.SendStatus(*before)
 	}
 	if f != nil {
-		f(s.sm, c)
+		f(s, c)
 	}
 	if after != nil {
-		s.sendStatus(*after)
+		s.SendStatus(*after)
 	}
 }
